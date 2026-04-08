@@ -1,9 +1,110 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { ContentTopic } from './data/contentPool';
 import { TOPIC_POOL } from './data/contentPool';
 
 interface ReviewImage { id: string; url: string; selected: boolean; refreshing: boolean; }
 interface ReviewState { topic: ContentTopic; images: ReviewImage[]; bodyText: string; title: string; }
+interface XHSStatus { api: 'checking'|'connected'|'disconnected'; login: 'checking'|'logged_in'|'not_logged_in'; sessionAge?: string; }
+
+// 小红书状态指示灯
+function XHSStatusBadge({ status, onClick }: { status: XHSStatus; onClick: () => void }) {
+  const dot = status.api === 'connected' && status.login === 'logged_in'
+    ? { bg: '#059669', label: `✅ 小红书已登录${status.sessionAge ? ` (${status.sessionAge})` : ''}` }
+    : status.api === 'connected' && status.login === 'not_logged_in'
+    ? { bg: '#f59e0b', label: '🔑 未登录' }
+    : { bg: '#9ca3af', label: '⏳ 等待连接…' };
+  return (
+    <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 5, background: dot.bg + '18', border: `1px solid ${dot.bg}44`, borderRadius: '20px', padding: '3px 10px', cursor: 'pointer' }} title="点击配置小红书">
+      <div style={{ width: 7, height: 7, borderRadius: '50%', background: dot.bg }} />
+      <span style={{ fontSize: '11px', fontWeight: 700, color: dot.bg }}>{dot.label}</span>
+    </button>
+  );
+}
+
+// 小红书登录/状态弹窗
+function XHSLoginModal({ onClose }: { onClose: () => void }) {
+  const [step, setStep] = useState<'info'|'wait'|'done'|'error'>('info');
+  const [msg, setMsg] = useState('');
+  const [qrReady, setQrReady] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [imgKey, setImgKey] = useState(0);
+
+  const check = async () => {
+    try {
+      const r = await fetch('http://127.0.0.1:3001/api/status', { mode: 'cors' });
+      const d = await r.json();
+      if (d.loggedIn) { setStep('done'); setMsg(`已登录！有效期剩余 ${d.expiresIn}`); if (pollRef.current) clearInterval(pollRef.current); setTimeout(onClose, 2500); return; }
+      if (d.qrExists) { setQrReady(true); setImgKey(k => k + 1); }
+    } catch { setStep('error'); setMsg('无法连接 API。请确保服务器上已运行：node /workspace/pw/xhs_api.js'); if (pollRef.current) clearInterval(pollRef.current); }
+  };
+
+  const startLogin = async () => {
+    setStep('wait'); setMsg('');
+    try {
+      await fetch('http://127.0.0.1:3001/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'login'}), mode:'cors' });
+    } catch {}
+    pollRef.current = setInterval(check, 4000);
+  };
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.72)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div style={{ background:'#fff', borderRadius:20, padding:32, maxWidth:440, width:'100%', boxShadow:'0 20px 60px rgba(0,0,0,0.4)' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+          <h2 style={{ margin:0, fontSize:18, fontWeight:900 }}>🌟 小红书自动发布</h2>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#aaa' }}>×</button>
+        </div>
+        {step === 'info' && (
+          <div>
+            <p style={{ color:'#555', lineHeight:1.9, fontSize:'14px', marginBottom:12 }}>
+              本功能需要<strong>在服务器上运行API服务器</strong>，它会调用云端浏览器自动完成小红书发布（登录只需1次，有效期7天）。
+            </p>
+            <div style={{ background:'#f8f8f8', borderRadius:10, padding:'12px 14px', fontFamily:'monospace', fontSize:12, color:'#333', marginBottom:14 }}>
+              <strong style={{ color:'#059669' }}>node /workspace/pw/xhs_api.js</strong>
+            </div>
+            <p style={{ fontSize:'12px', color:'#999', marginBottom:16 }}>API服务器运行后，点击下方「扫码登录」，用小红书App扫码授权。</p>
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={startLogin} style={{ flex:1, padding:'12px', background:'#e11d48', color:'#fff', border:'none', borderRadius:10, cursor:'pointer', fontWeight:800, fontSize:14 }}>🔑 扫码登录小红书</button>
+              <button onClick={onClose} style={{ padding:'12px 18px', background:'#f5f5f5', border:'none', borderRadius:10, cursor:'pointer', fontWeight:700 }}>暂不</button>
+            </div>
+          </div>
+        )}
+        {step === 'wait' && (
+          <div style={{ textAlign:'center' }}>
+            {qrReady ? (
+              <>
+                <p style={{ fontSize:'13px', color:'#666', marginBottom:10 }}>用小红书App扫描二维码登录</p>
+                <img key={imgKey} src={`http://127.0.0.1:3001/api/qr?t=${imgKey}`} alt="登录二维码" style={{ width:200, height:200, borderRadius:10, border:'1px solid #eee' }} />
+                <p style={{ fontSize:'12px', color:'#059669', marginTop:10 }}>⏳ 等待扫码中…（二维码5分钟内有效）</p>
+              </>
+            ) : (
+              <div style={{ padding:'30px 0' }}><div style={{ fontSize:36, marginBottom:10 }}>⏳</div><p style={{ color:'#666' }}>正在启动浏览器，请稍等15秒…</p></div>
+            )}
+            <p style={{ fontSize:'11px', color:'#bbb', marginTop:14 }}>也可以直接复制文案到小红书手动发布，不影响使用</p>
+          </div>
+        )}
+        {step === 'done' && (
+          <div style={{ textAlign:'center', padding:'20px 0' }}>
+            <div style={{ fontSize:48, marginBottom:12 }}>🎉</div>
+            <p style={{ fontSize:16, fontWeight:800, color:'#059669' }}>{msg || '登录成功！'}</p>
+            <p style={{ fontSize:13, color:'#888', marginTop:8 }}>现在可以「发布到小红书」自动发布了！</p>
+          </div>
+        )}
+        {step === 'error' && (
+          <div style={{ textAlign:'center', padding:'10px 0' }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>⚠️</div>
+            <p style={{ fontSize:13, color:'#e11d48', marginBottom:14 }}>{msg}</p>
+            <div style={{ background:'#f8f8f8', borderRadius:10, padding:'12px 14px', fontFamily:'monospace', fontSize:12, textAlign:'left', marginBottom:14 }}>
+              <strong style={{ color:'#059669' }}>node /workspace/pw/xhs_api.js</strong>
+            </div>
+            <button onClick={onClose} style={{ padding:'10px 24px', background:'#1a1a2e', color:'#fff', border:'none', borderRadius:8, cursor:'pointer' }}>知道了</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
   planned:   { bg: '#dbeafe', text: '#1e40af', label: '📋 规划中' },
@@ -45,11 +146,27 @@ export default function App() {
   const [deepseekUrl, setDeepseekUrl] = useState(() => localStorage.getItem('nomad_ds_url') || 'https://api.deepseek.com/v1');
   const [feishuChatId, setFeishuChatId] = useState(() => localStorage.getItem('nomad_feishu_chat') || '');
   const [currentMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [showXHSLogin, setShowXHSLogin] = useState(false);
+  const [xhsStatus, setXhsStatus] = useState<XHSStatus>({ api: 'checking', login: 'checking' });
 
-  const toast_ = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500); };
+  const toast_ = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
   const saveConfig = (k: string, v: string) => localStorage.setItem(k, v);
   const updateTopic = (id: number, patch: Partial<ContentTopic>) =>
     setTopics(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
+
+  // 检查小红书 API 状态
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const r = await fetch('http://127.0.0.1:3001/api/status', { mode: 'cors' });
+        const d = await r.json();
+        setXhsStatus({ api: 'connected', login: d.loggedIn ? 'logged_in' : 'not_logged_in', sessionAge: d.expiresIn });
+      } catch { setXhsStatus({ api: 'disconnected', login: 'checking' }); }
+    };
+    check();
+    const id = setInterval(check, 20000);
+    return () => clearInterval(id);
+  }, []);
 
   const toggleReviewMode = (mode: 'auto' | 'manual') => {
     setReviewMode(mode);
@@ -110,12 +227,47 @@ export default function App() {
   const handlePublish = async () => {
     if (!review) return;
     setPublishing(true);
+    const selectedImages = review.images.filter(i => i.selected);
     try {
-      await navigator.clipboard.writeText(`【${review.title}】\n\n${review.bodyText}`);
-      updateTopic(review.topic.id, { status: 'published', publishedAt: new Date().toISOString().slice(0, 10) });
-      toast_('✅ 已复制文案！去小红书粘贴图片+文字发布');
+      // 优先：调用小红书 API 真实发布
+      if (xhsStatus.api === 'connected' && xhsStatus.login === 'logged_in') {
+        toast_('🤖 正在通过云端浏览器自动发布…');
+        const body = {
+          title: review.title,
+          content: review.bodyText,
+          images: selectedImages.map((_, i) => `/workspace/nomad-content-hub/public/covers/topic_${review.topic.id}_${i}.png`),
+          topics: review.topic.tags || '',
+        };
+        const resp = await fetch('http://127.0.0.1:3001/api/publish', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), mode: 'cors',
+        });
+        const d = await resp.json();
+        if (d.ok) {
+          updateTopic(review.topic.id, { status: 'published', publishedAt: new Date().toISOString().slice(0, 10) });
+          toast_('🎉 发布成功！小红书已自动发布！');
+        } else if (d.reason === 'not_logged_in') {
+          await navigator.clipboard.writeText(`【${review.title}】\n\n${review.bodyText}`);
+          updateTopic(review.topic.id, { status: 'published', publishedAt: new Date().toISOString().slice(0, 10) });
+          toast_('✅ 已复制！去小红书手动发布');
+        } else {
+          await navigator.clipboard.writeText(`【${review.title}】\n\n${review.bodyText}`);
+          toast_('⚠️ 发布异常，已复制文案');
+        }
+      } else {
+        // Fallback：复制文案
+        await navigator.clipboard.writeText(`【${review.title}】\n\n${review.bodyText}`);
+        updateTopic(review.topic.id, { status: 'published', publishedAt: new Date().toISOString().slice(0, 10) });
+        toast_('✅ 已复制文案！去小红书粘贴发布');
+      }
       setReview(null);
-    } catch { toast_('❌ 发布失败'); }
+    } catch {
+      try {
+        await navigator.clipboard.writeText(`【${review.title}】\n\n${review.bodyText}`);
+        updateTopic(review.topic.id, { status: 'published', publishedAt: new Date().toISOString().slice(0, 10) });
+        toast_('✅ 已复制！去小红书手动发布');
+        setReview(null);
+      } catch { toast_('❌ 发布失败'); }
+    }
     setPublishing(false);
   };
 
@@ -180,12 +332,14 @@ export default function App() {
     return (
       <div style={{ minHeight: '100vh', background: '#f5f0e8', fontFamily: '"PingFang SC","Microsoft YaHei",sans-serif' }}>
         {toast && <Toast msg={toast} />}
+      {showXHSLogin && <XHSLoginModal onClose={() => setShowXHSLogin(false)} />}
         <div style={{ background: '#1a1a2e', color: '#fff', padding: '14px 24px', position: 'sticky', top: 0, zIndex: 100 }}>
           <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 900 }}>🔍 内容审核 · 选封面 · 发布</h2>
               <p style={{ margin: '2px 0 0', opacity: 0.6, fontSize: '12px' }}>{review.topic.title}</p>
             </div>
+            <XHSStatusBadge status={xhsStatus} onClick={() => setShowXHSLogin(true)} />
             <button onClick={() => setReview(null)} style={{ padding: '7px 18px', background: 'rgba(255,255,255,0.15)', border: '1.5px solid rgba(255,255,255,0.3)', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 700 }}>← 返回</button>
           </div>
         </div>
@@ -254,6 +408,7 @@ export default function App() {
   return (
     <div style={{ minHeight: '100vh', background: '#f5f0e8', fontFamily: '"PingFang SC","Microsoft YaHei",sans-serif' }}>
       {toast && <Toast msg={toast} />}
+      {showXHSLogin && <XHSLoginModal onClose={() => setShowXHSLogin(false)} />}
 
       {/* Header */}
       <div style={{ background: '#1a1a2e', color: '#fff', position: 'sticky', top: 0, zIndex: 100 }}>
