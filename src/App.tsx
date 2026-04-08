@@ -31,7 +31,7 @@ function XHSLoginModal({ onClose }: { onClose: () => void }) {
 
   const check = async () => {
     try {
-      const r = await fetch('http://127.0.0.1:3001/api/status', { mode: 'cors' });
+      const r = await fetch('http://127.0.0.1:3002/api/status', { mode: 'cors' });
       const d = await r.json();
       if (d.loggedIn) { setStep('done'); setMsg(`已登录！有效期剩余 ${d.expiresIn}`); if (pollRef.current) clearInterval(pollRef.current); setTimeout(onClose, 2500); return; }
       if (d.qrExists) { setQrReady(true); setImgKey(k => k + 1); }
@@ -41,7 +41,7 @@ function XHSLoginModal({ onClose }: { onClose: () => void }) {
   const startLogin = async () => {
     setStep('wait'); setMsg('');
     try {
-      await fetch('http://127.0.0.1:3001/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'login'}), mode:'cors' });
+      await fetch('http://127.0.0.1:3002/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'login'}), mode:'cors' });
     } catch {}
     pollRef.current = setInterval(check, 4000);
   };
@@ -75,7 +75,7 @@ function XHSLoginModal({ onClose }: { onClose: () => void }) {
             {qrReady ? (
               <>
                 <p style={{ fontSize:'13px', color:'#666', marginBottom:10 }}>用小红书App扫描二维码登录</p>
-                <img key={imgKey} src={`http://127.0.0.1:3001/api/qr?t=${imgKey}`} alt="登录二维码" style={{ width:200, height:200, borderRadius:10, border:'1px solid #eee' }} />
+                <img key={imgKey} src={`http://127.0.0.1:3002/api/qr?t=${imgKey}`} alt="登录二维码" style={{ width:200, height:200, borderRadius:10, border:'1px solid #eee' }} />
                 <p style={{ fontSize:'12px', color:'#059669', marginTop:10 }}>⏳ 等待扫码中…（二维码5分钟内有效）</p>
               </>
             ) : (
@@ -158,7 +158,7 @@ export default function App() {
   useEffect(() => {
     const check = async () => {
       try {
-        const r = await fetch('http://127.0.0.1:3001/api/status', { mode: 'cors' });
+        const r = await fetch('http://127.0.0.1:3002/api/status', { mode: 'cors' });
         const d = await r.json();
         setXhsStatus({ api: 'connected', login: d.loggedIn ? 'logged_in' : 'not_logged_in', sessionAge: d.expiresIn });
       } catch { setXhsStatus({ api: 'disconnected', login: 'checking' }); }
@@ -238,7 +238,7 @@ export default function App() {
           images: selectedImages.map((_, i) => `/workspace/nomad-content-hub/public/covers/topic_${review.topic.id}_${i}.png`),
           topics: review.topic.tags || '',
         };
-        const resp = await fetch('http://127.0.0.1:3001/api/publish', {
+        const resp = await fetch('http://127.0.0.1:3002/api/publish', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), mode: 'cors',
         });
         const d = await resp.json();
