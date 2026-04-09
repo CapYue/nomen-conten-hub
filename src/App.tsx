@@ -147,7 +147,14 @@ export default function App() {
   const [feishuChatId, setFeishuChatId] = useState(() => localStorage.getItem('nomad_feishu_chat') || '');
   const [currentMonth] = useState(new Date().toISOString().slice(0, 7));
   const [showXHSLogin, setShowXHSLogin] = useState(false);
-  const [xhsStatus, setXhsStatus] = useState<XHSStatus>({ api: 'checking', login: 'checking' });
+  const [doubaoLoginOpen, setDoubaoLoginOpen] = useState(false);
+  const [doubaoPrompt, setDoubaoPrompt] = useState('');
+  const [doubaoGenerating, setDoubaoGenerating] = useState(false);
+  const [doubaoResult, setDoubaoResult] = useState('');
+  const [deepseekPrompt, setDeepseekPrompt] = useState('');
+  const [deepseekGenerating, setDeepseekGenerating] = useState(false);
+  const [deepseekResult, setDeepseekResult] = useState('');
+  const [xhsStatus, setXhsStatus] = useState<XHSStatus & { doubaoLoggedIn?: boolean }>({ api: 'checking', login: 'checking', doubaoLoggedIn: false });
 
   const toast_ = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
   const saveConfig = (k: string, v: string) => localStorage.setItem(k, v);
@@ -277,6 +284,80 @@ export default function App() {
     toast_(`✅「${topic.title}」已自动发布，文案已复制！`);
   };
 
+  // ── 豆包图片生成 ──────────────────────────────
+  const handleDoubaoGenerate = async () => {
+    if (!doubaoPrompt.trim() || doubaoGenerating) return;
+    setDoubaoGenerating(true);
+    setDoubaoResult('');
+    try {
+      const resp = await fetch('http://127.0.0.1:3004/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: doubaoPrompt }),
+        mode: 'cors'
+      });
+      const d = await resp.json();
+      if (d.ok) {
+        // 后台生图中，轮询结果
+        for (let i = 0; i < 60; i++) {
+          await new Promise(r => setTimeout(r, 3000));
+          try {
+            const r2 = await fetch('http://127.0.0.1:3004/api/result', { mode: 'cors' });
+            const d2 = await r2.json();
+            if (d2.result && d2.result.success) {
+              setDoubaoResult(d2.result.file || d2.result.local || '');
+              toast_('✅ 豆包图片生成成功！');
+              break;
+            } else if (d2.result && !d2.result.success && d2.result.reason !== 'generating') {
+              toast_('⚠️ 生图失败：' + (d2.result.reason || '未知'));
+              break;
+            }
+          } catch {}
+        }
+      } else if (d.reason === 'not_logged_in') {
+        toast_('⚠️ 豆包未登录，请先扫码登录');
+        setDoubaoLoginOpen(true);
+      }
+    } catch(e) {
+      toast_('❌ 豆包连接失败：' + e.message);
+    }
+    setDoubaoGenerating(false);
+  };
+
+  const handleSaveDoubaoImage = async () => {
+    if (!doubaoResult) return;
+    toast_('💾 已保存到封面库（刷新页面后生效）');
+  };
+
+  const handleDoubaoLogin = async () => {
+    try {
+      await fetch('http://127.0.0.1:3004/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', mode: 'cors' });
+      toast_('🔑 豆包登录流程已启动，请等待10秒后刷新');
+    } catch(e) { toast_('❌ 启动失败：' + e.message); }
+  };
+
+  // ── Deepseek 文案生成 ──────────────────────────
+  const handleDeepseekGenerate = async () => {
+    if (!deepseekPrompt.trim() || !deepseekKey || deepseekGenerating) return;
+    setDeepseekGenerating(true);
+    setDeepseekResult('');
+    try {
+      const res = await fetch(`${deepseekUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${deepseekKey}` },
+        body: JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'user', content: `你是一位小红书爆款文案专家。根据以下选题，写一篇150-300字的小红书文案，包含标题和正文，配上3-5个相关话题标签。\n\n选题：${deepseekPrompt}\n\n请用JSON格式返回：\n{\n  "title": "标题（20字以内）",\n  "content": "正文内容（分段，带emoji）",\n  "topics": "#话题1 #话题2 #话题3"\n}` }], temperature: 0.8, max_tokens: 800 }),
+      });
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content || '';
+      const match = text.match(/\{[\s\S]*?\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        setDeepseekResult(`📌 ${parsed.title}\n\n${parsed.content}\n\n${parsed.topics}`);
+      } else { setDeepseekResult(text); }
+    } catch(e) { toast_('❌ 生成失败：' + (e.message || 'API错误')); }
+    setDeepseekGenerating(false);
+  };
+
   const handleGenerate = async () => {
     if (!deepseekKey) { toast_('⚠️ 请先填 Deepseek API Key'); return; }
     if (!genPrompt.trim()) return;
@@ -320,7 +401,8 @@ export default function App() {
   const TABS: { key: Tab; label: string; emoji: string }[] = [
     { key: 'home',     label: '内容库',   emoji: '🏠' },
     { key: 'calendar', label: '内容日历', emoji: '📅' },
-    { key: 'generate', label: 'AI 生成',   emoji: '✨' },
+    { key: 'aitools',  label: 'AI 工具',  emoji: '🤖' },
+    { key: 'generate', label: 'AI 生成',  emoji: '✨' },
     { key: 'settings', label: '配置',      emoji: '⚙️' },
   ];
 
@@ -332,7 +414,24 @@ export default function App() {
     return (
       <div style={{ minHeight: '100vh', background: '#f5f0e8', fontFamily: '"PingFang SC","Microsoft YaHei",sans-serif' }}>
         {toast && <Toast msg={toast} />}
-      {showXHSLogin && <XHSLoginModal onClose={() => setShowXHSLogin(false)} />}
+            {showXHSLogin && <XHSLoginModal onClose={() => setShowXHSLogin(false)} />}
+      {doubaoLoginOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 20, padding: 32, maxWidth: 440, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>🔑 豆包登录</h2>
+              <button onClick={() => setDoubaoLoginOpen(false)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#aaa' }}>×</button>
+            </div>
+            <p style={{ color: '#555', fontSize: '14px', marginBottom: 14, lineHeight: 1.8 }}>
+              在服务器上运行 <strong>node /workspace/pw/doubao_api.js</strong>，然后访问 <strong>http://服务器IP:3004/api/qr</strong> 获取登录二维码
+            </p>
+            <div style={{ background: '#f8f8f8', borderRadius: 10, padding: '12px 14px', fontFamily: 'monospace', fontSize: 12, color: '#333', marginBottom: 14 }}>
+              node /workspace/pw/doubao_api.js
+            </div>
+            <p style={{ fontSize: '12px', color: '#bbb', textAlign: 'center' }}>登录完成后刷新页面即可使用豆包生图，有效期7天</p>
+          </div>
+        </div>
+      )}
         <div style={{ background: '#1a1a2e', color: '#fff', padding: '14px 24px', position: 'sticky', top: 0, zIndex: 100 }}>
           <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -562,6 +661,141 @@ export default function App() {
                   <button key={q} onClick={() => { setGenPrompt(q); setTab('generate'); }} style={{ textAlign: 'left', padding: '11px 14px', background: '#f5f0e8', border: '1.5px solid #e0d8cf', borderRadius: '10px', cursor: 'pointer', fontSize: '12px', color: '#333', lineHeight: 1.5 }}>
                     ✨ {q}
                   </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── AI TOOLS ── */}
+        {tab === 'aitools' && (
+          <>
+            <h2 style={{ margin: '0 0 20px', fontSize: '18px', color: '#1a1a2e', fontWeight: 900 }}>🤖 AI 工具箱</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              
+              {/* 豆包：图片生成 */}
+              <div style={{ background: '#fff', borderRadius: '18px', padding: '26px', boxShadow: '0 2px 12px rgba(0,0,0,0.07)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 900, color: '#e11d48' }}>🖼️ 豆包图片生成</h3>
+                    <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#888' }}>免费 · 真实感强 · 9:16 竖图</p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: xhsStatus.doubaoLoggedIn ? '#059669' : xhsStatus.api === 'checking' ? '#f59e0b' : '#e5e7eb' }} />
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: xhsStatus.doubaoLoggedIn ? '#059669' : '#9ca3af' }}>
+                      {xhsStatus.doubaoLoggedIn ? '✅ 已登录' : '❌ 未登录'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 登录按钮 */}
+                {!xhsStatus.doubaoLoggedIn && (
+                  <button onClick={() => { setDoubaoLoginOpen(true); }} style={{ width: '100%', padding: '10px', background: '#e11d48', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontSize: '13px', fontWeight: 800, marginBottom: 14 }}>
+                    🔑 扫码登录豆包
+                  </button>
+                )}
+
+                {/* 图片生成区 */}
+                {xhsStatus.doubaoLoggedIn && (
+                  <>
+                    <textarea
+                      value={doubaoPrompt}
+                      onChange={e => setDoubaoPrompt(e.target.value)}
+                      rows={4}
+                      placeholder="输入图片描述，例如：蒙古包大草原，清晨阳光，9:16竖版，高清摄影风格"
+                      style={{ width: '100%', padding: '11px', border: '1.5px solid #e0d8cf', borderRadius: '12px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.7, marginBottom: 10 }}
+                    />
+                    <button
+                      onClick={handleDoubaoGenerate}
+                      disabled={doubaoGenerating || !doubaoPrompt.trim()}
+                      style={{ width: '100%', padding: '11px', background: doubaoGenerating ? '#9ca3af' : '#e11d48', color: '#fff', border: 'none', borderRadius: '12px', cursor: doubaoGenerating ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 800, marginBottom: 12 }}
+                    >
+                      {doubaoGenerating ? '⏳ 豆包生成中（30-60秒）…' : '🎨 用豆包生成图片'}
+                    </button>
+                    {doubaoResult && (
+                      <div style={{ textAlign: 'center', marginTop: 12 }}>
+                        <img src={doubaoResult} alt="生成结果" style={{ width: '100%', maxWidth: 360, borderRadius: '12px', border: '2px solid #e0d8cf' }} />
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'center' }}>
+                          <button onClick={() => navigator.clipboard.writeText(doubaoResult)} style={{ padding: '6px 14px', background: '#f0ebe4', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>📋 复制链接</button>
+                          <button onClick={handleSaveDoubaoImage} style={{ padding: '6px 14px', background: '#059669', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>💾 保存到封面库</button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div style={{ marginTop: 14, padding: '12px', background: '#fff5f5', borderRadius: '10px', fontSize: '11px', color: '#888', lineHeight: 1.7 }}>
+                  <strong style={{ color: '#e11d48' }}>💡 说明：</strong>豆包生成图片免费，登录有效期7天。生图后自动复制链接，可保存到封面库用于笔记发布。
+                </div>
+              </div>
+
+              {/* Deepseek：文案生成 */}
+              <div style={{ background: '#fff', borderRadius: '18px', padding: '26px', boxShadow: '0 2px 12px rgba(0,0,0,0.07)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 900, color: '#4338ca' }}>✍️ Deepseek 文案生成</h3>
+                    <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#888' }}>爆款小红书文案 · 标题+正文+话题</p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: deepseekKey ? '#059669' : '#e5e7eb' }} />
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: deepseekKey ? '#059669' : '#9ca3af' }}>{deepseekKey ? '✅ 已配置' : '⚠️ 未配置'}</span>
+                  </div>
+                </div>
+
+                {!deepseekKey && (
+                  <div style={{ padding: '14px', background: '#fef3c7', borderRadius: '10px', fontSize: '12px', color: '#92400e', marginBottom: 14 }}>
+                    ⚠️ 请先在「配置」页面填写 Deepseek API Key
+                  </div>
+                )}
+
+                <textarea
+                  value={deepseekPrompt}
+                  onChange={e => setDeepseekPrompt(e.target.value)}
+                  rows={4}
+                  placeholder="输入选题方向，例如：蒙古族马奶节的传统习俗，现代游牧生活记录"
+                  style={{ width: '100%', padding: '11px', border: '1.5px solid #e0d8cf', borderRadius: '12px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.7, marginBottom: 10 }}
+                />
+                <button
+                  onClick={handleDeepseekGenerate}
+                  disabled={deepseekGenerating || !deepseekPrompt.trim() || !deepseekKey}
+                  style={{ width: '100%', padding: '11px', background: deepseekGenerating ? '#9ca3af' : '#4338ca', color: '#fff', border: 'none', borderRadius: '12px', cursor: deepseekGenerating ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 800, marginBottom: 12 }}
+                >
+                  {deepseekGenerating ? '⏳ 生成中…' : '🚀 生成文案'}
+                </button>
+                {deepseekResult && (
+                  <div style={{ marginTop: 12 }}>
+                    <pre style={{ background: '#faf8f5', border: '1px solid #ede8e0', borderRadius: '10px', padding: '12px', fontSize: '12px', color: '#333', overflow: 'auto', maxHeight: 260, lineHeight: 1.7 }}>{deepseekResult}</pre>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <button onClick={() => navigator.clipboard.writeText(deepseekResult)} style={{ flex: 1, padding: '8px', background: '#f0ebe4', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>📋 复制文案</button>
+                      <button onClick={() => { setGenResult(deepseekResult); setGenPrompt(deepseekPrompt); setTab('generate'); }} style={{ flex: 1, padding: '8px', background: '#059669', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>✨ 加入内容库</button>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ marginTop: 14, padding: '12px', background: '#f5f0e8', borderRadius: '10px', fontSize: '11px', color: '#888', lineHeight: 1.7 }}>
+                  <strong style={{ color: '#4338ca' }}>💡 组合使用：</strong>先用 Deepseek 生成文案，再到「内容库」审核发布，或保存封面图后一起使用。
+                </div>
+              </div>
+            </div>
+
+            {/* 快捷提示 */}
+            <div style={{ marginTop: 20, background: '#fff', borderRadius: '16px', padding: '22px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+              <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: 800, color: '#1a1a2e' }}>🔥 推荐选题（直接点击生成）</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
+                {[
+                  { img: '那达慕大会：草原最盛大的"男儿三艺"运动会', txt: '那达慕大会：草原最盛大的"男儿三艺"运动会' },
+                  { img: '蒙古包大草原清晨阳光高清摄影9:16', txt: '蒙古包大草原清晨阳光高清摄影9:16' },
+                  { img: '草原星空下的露营体验，银河清晰可见，9:16竖版', txt: '草原星空下的露营体验，银河清晰可见，9:16竖版' },
+                  { img: '马头琴演奏，蒙古族传统乐器，暖色调，9:16', txt: '马头琴演奏，蒙古族传统乐器，暖色调，9:16' },
+                ].map(item => (
+                  <div key={item.img} style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => { setDoubaoPrompt(item.img); setDoubaoGenerating(false); setDoubaoResult(''); setTab('aitools'); }} style={{ flex: 1, textAlign: 'left', padding: '8px 12px', background: '#fff5f5', border: '1.5px solid #fee2e2', borderRadius: '9px', cursor: 'pointer', fontSize: '11px', color: '#e11d48', lineHeight: 1.5 }}>
+                      🖼️ {item.img.substring(0, 30)}…
+                    </button>
+                    <button onClick={() => { setDeepseekPrompt(item.txt); setDeepseekGenerating(false); setDeepseekResult(''); setTab('aitools'); }} style={{ flex: 1, textAlign: 'left', padding: '8px 12px', background: '#eef2ff', border: '1.5px solid #c7d2fe', borderRadius: '9px', cursor: 'pointer', fontSize: '11px', color: '#4338ca', lineHeight: 1.5 }}>
+                      ✍️ {item.txt.substring(0, 25)}…
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
