@@ -4,9 +4,10 @@
 
 ---
 
-## 📌 当前版本：v1.1.0（2026-04-08）
+## 📌 当前版本：v1.2.0（2026-04-09）
 
-**在线访问：** https://vc47499yvvic.space.minimaxi.com
+**本地部署地址：** `http://localhost:5173`
+**详细文档：** `LOCAL_SETUP.md`
 
 ---
 
@@ -63,16 +64,18 @@ git checkout -b new-feature e476baf
 ```
 nomad-content-hub/
 ├── src/
-│   ├── App.tsx              # 主应用（含审核页/日历/生成/配置）
+│   ├── App.tsx              # 主应用（含审核页/日历/AI工具/配置）
 │   ├── main.tsx             # React 入口
 │   └── data/
 │       └── contentPool.ts   # 全部选题数据（含封面图 CDN URL）
-├── public/covers/           # AI 封面图（14张）
-├── server.js                # Express API 服务器（图片刷新）
-├── pw/
-│   └── xhs_publisher.js     # 小红书自动化发布脚本
-├── docs/
-│   └── XHS-INTEGRATION.md   # 小红书打通方案详解
+├── public/covers/           # AI 封面图（14张预生成 + 用户生成）
+├── xhs_api.js               # 小红书 API 服务器（端口 3003）
+├── doubao_api.js            # 豆包 API 服务器（端口 3004）
+├── xhs_login.js             # 小红书登录脚本
+├── xhs_publish.js           # 小红书发布脚本
+├── doubao_login.js          # 豆包登录脚本
+├── doubao_gen.js            # 豆包生图脚本
+├── LOCAL_SETUP.md           # 本地搭建完整指南（Trae AI Agent 专用）
 ├── README.md                # 项目说明
 ├── CHANGELOG.md             # 本文件
 └── package.json

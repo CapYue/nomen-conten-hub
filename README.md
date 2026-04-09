@@ -4,6 +4,8 @@
 
 **[在线访问](https://vc47499yvvic.space.minimaxi.com)**
 
+> ⚠️ 云端版本功能受限，完整自动化需本地运行。详见 [LOCAL_SETUP.md](LOCAL_SETUP.md)
+
 ---
 
 ## 功能概览
