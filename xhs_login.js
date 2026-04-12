@@ -1,16 +1,16 @@
 /**
  * 小红书登录脚本 - 写入临时文件执行，避免 shell 转义问题
  */
-const { chromium } = require('/workspace/pw/node_modules/playwright');
+const { chromium } = require('playwright');
 const fs = require('fs');
 
 (async () => {
-  const SESSION_FILE = '/workspace/pw/xhs_session.json';
-  const QR_FILE = '/workspace/pw/xhs_login_qr.png';
+  const SESSION_FILE = './xhs_session.json';
+  const QR_FILE = './xhs_login_qr.png';
 
   console.log('Starting login...');
   const browser = await chromium.launch({
-    executablePath: '/workspace/browsers/chromium-1217/chrome-linux64/chrome',
+    channel: 'msedge',
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
   });
@@ -28,7 +28,7 @@ const fs = require('fs');
     await page.waitForTimeout(4000);
 
     // 截图登录页
-    await page.screenshot({ path: '/workspace/pw/login_page_full.png', fullPage: false });
+    await page.screenshot({ path: './login_page_full.png', fullPage: false });
     console.log('Screenshot saved');
 
     // 提取二维码
@@ -46,7 +46,7 @@ const fs = require('fs');
       console.log('QR saved: ' + QR_FILE);
     } else {
       console.log('QR not found on page');
-      await page.screenshot({ path: '/workspace/pw/login_noqr.png', fullPage: false });
+      await page.screenshot({ path: './login_noqr.png', fullPage: false });
     }
 
     // 等待登录完成
@@ -72,7 +72,7 @@ const fs = require('fs');
 
   } catch (e) {
     console.error('Error:', e.message);
-    await page.screenshot({ path: '/workspace/pw/login_error.png' }).catch(() => {});
+    await page.screenshot({ path: './login_error.png' }).catch(() => {});
     await browser.close();
     process.exit(1);
   }

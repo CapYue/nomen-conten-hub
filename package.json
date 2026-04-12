@@ -9,8 +9,10 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "playwright": "^1.59.1",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "xiaohongshu-mcp-node": "^1.0.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",

@@ -12,37 +12,37 @@ const { spawn } = require('child_process');
 
 const PORT = 3004;
 const DOUBAO_URL = 'https://www.doubao.com/chat/';
-const SESSION_FILE = '/workspace/pw/doubao_session.json';
-const QR_FILE = '/workspace/pw/doubao_qr.png';
-const LOG_FILE = '/workspace/pw/doubao.log';
+const SESSION_FILE = './doubao_session.json';
+const QR_FILE = './doubao_qr.png';
+const LOG_FILE = './doubao.log';
 
 const CHROME = '/workspace/browsers/chromium-1217/chrome-linux64/chrome';
 
 function log(msg) {
-  console.log(`[${new Date().toISOString()}] ${msg}`);
-  fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
+    console.log(`[${new Date().toISOString()}] ${msg}`);
+    fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
 }
 
 function checkLogin() {
-  if (!fs.existsSync(SESSION_FILE)) return { loggedIn: false, reason: 'no_session' };
-  const stat = fs.statSync(SESSION_FILE);
-  const ageDays = Math.round((Date.now() - stat.mtimeMs) / 1000 / 60 / 60 / 24);
-  return { loggedIn: true, sessionAgeDays: ageDays, expiresIn: Math.max(0, 7 - ageDays) + ' days' };
+    if (!fs.existsSync(SESSION_FILE)) return { loggedIn: false, reason: 'no_session' };
+    const stat = fs.statSync(SESSION_FILE);
+    const ageDays = Math.round((Date.now() - stat.mtimeMs) / 1000 / 60 / 60 / 24);
+    return { loggedIn: true, sessionAgeDays: ageDays, expiresIn: Math.max(0, 7 - ageDays) + ' days' };
 }
 
 // 执行豆包生图（写入临时脚本文件，避免shell转义）
 async function generateImage(prompt) {
-  const scriptFile = '/workspace/pw/doubao_gen_tmp.js';
-  const script = `
-const { chromium } = require('/workspace/pw/node_modules/playwright');
+    const scriptFile = './doubao_gen_tmp.js';
+    const script = `
+const { chromium } = require('playwright');
 const fs = require('fs');
 
 (async () => {
   const prompt = ${JSON.stringify(prompt)};
-  const imgOut = '/workspace/pw/doubao_output.png';
+  const imgOut = './doubao_output.png';
   
   const browser = await chromium.launch({
-    executablePath: '${CHROME}',
+    channel: 'msedge',
     headless: true,
     args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu']
   });
@@ -73,7 +73,7 @@ const fs = require('fs');
       if (imgBtn) imgBtn.click();
     });
     await page.waitForTimeout(2000);
-    await page.screenshot({ path: '/workspace/pw/doubao_step1.png', fullPage: false });
+    await page.screenshot({ path: './doubao_step1.png', fullPage: false });
     
     // 3. 找到输入框并填写prompt
     // 尝试多种选择器
@@ -107,7 +107,7 @@ const fs = require('fs');
     
     console.log('Fill result:', filled);
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: '/workspace/pw/doubao_step2.png', fullPage: false });
+    await page.screenshot({ path: './doubao_step2.png', fullPage: false });
     
     // 4. 发送：点击左下角发送按钮 (392, 834)
     const sent = await page.evaluate(() => {
@@ -126,7 +126,7 @@ const fs = require('fs');
     // 5. 按回车键作为备用发送
     await page.keyboard.press('Enter');
     await page.waitForTimeout(3000);
-    await page.screenshot({ path: '/workspace/pw/doubao_step3.png', fullPage: false });
+    await page.screenshot({ path: './doubao_step3.png', fullPage: false });
     
     // 6. 等待图片结果出现（最多60秒）
     console.log('Waiting for image result...');
@@ -153,7 +153,7 @@ const fs = require('fs');
       console.log('Attempt ' + (i+1) + ': ' + imgs.length + ' images found, waiting...');
     }
     
-    await page.screenshot({ path: '/workspace/pw/doubao_step4.png', fullPage: true });
+    await page.screenshot({ path: './doubao_step4.png', fullPage: true });
     
     if (imgUrl) {
       // 下载图片
@@ -161,7 +161,7 @@ const fs = require('fs');
         const imgResp = await page.evaluate(async (src) => {
           const r = await fetch(src);
           const buf = await r.arrayBuffer();
-          require('fs').writeFileSync('/workspace/pw/doubao_output.png', Buffer.from(buf));
+          require('fs').writeFileSync('./doubao_output.png', Buffer.from(buf));
           return 'saved';
         }, imgUrl);
         console.log('IMG_URL:' + imgUrl);
@@ -180,61 +180,61 @@ const fs = require('fs');
     
   } catch(e) {
     console.log('ERROR:' + e.message);
-    await page.screenshot({ path: '/workspace/pw/doubao_error.png' }).catch(()=>{});
+    await page.screenshot({ path: './doubao_error.png' }).catch(()=>{});
     await browser.close();
     process.exit(1);
   }
 })();
 `;
-  
-  fs.writeFileSync(scriptFile, script);
-  
-  return new Promise((resolve) => {
-    const child = spawn('xvfb-run', ['-a', 'node', scriptFile], {
-      cwd: '/workspace/pw',
-      timeout: 120000,
+
+    fs.writeFileSync(scriptFile, script);
+
+    return new Promise((resolve) => {
+        const child = spawn('node', [scriptFile], {
+            cwd: '.',
+            timeout: 120000,
+        });
+
+        let out = '';
+        child.stdout.on('data', d => { out += d.toString(); process.stdout.write(d); });
+        child.stderr.on('data', d => process.stderr.write(d));
+
+        child.on('close', (code) => {
+            out = out.toString();
+            log('generateImage output: ' + out.substring(0, 300));
+
+            // 下载到了图片
+            if (fs.existsSync('./doubao_output.png')) {
+                const stat = fs.statSync('./doubao_output.png');
+                if (stat.size > 5000) {
+                    // 上传到CDN
+                    const { execSync } = require('child_process');
+                    try {
+                        execSync('cp ./doubao_output.png ./public/covers/doubao_latest.png');
+                    } catch (e) { }
+                    resolve({ success: true, file: './doubao_output.png', local: './public/covers/doubao_latest.png', detail: 'generated_by_doubao' });
+                    return;
+                }
+            }
+
+            if (out.includes('NOT_LOGGED_IN')) { resolve({ success: false, reason: 'not_logged_in' }); return; }
+            if (out.includes('RESULT:NO_IMAGE')) { resolve({ success: false, reason: 'no_image_generated' }); return; }
+            if (out.includes('ERROR:')) { resolve({ success: false, reason: 'execution_error', detail: out.substring(0, 200) }); return; }
+            resolve({ success: false, reason: 'unknown', detail: out.substring(0, 200) });
+        });
     });
-    
-    let out = '';
-    child.stdout.on('data', d => { out += d.toString(); process.stdout.write(d); });
-    child.stderr.on('data', d => process.stderr.write(d));
-    
-    child.on('close', (code) => {
-      out = out.toString();
-      log('generateImage output: ' + out.substring(0, 300));
-      
-      // 下载到了图片
-      if (fs.existsSync('/workspace/pw/doubao_output.png')) {
-        const stat = fs.statSync('/workspace/pw/doubao_output.png');
-        if (stat.size > 5000) {
-          // 上传到CDN
-          const { execSync } = require('child_process');
-          try {
-            execSync('cp /workspace/pw/doubao_output.png /workspace/nomad-content-hub/public/covers/doubao_latest.png');
-          } catch(e) {}
-          resolve({ success: true, file: '/workspace/pw/doubao_output.png', local: '/workspace/nomad-content-hub/public/covers/doubao_latest.png', detail: 'generated_by_doubao' });
-          return;
-        }
-      }
-      
-      if (out.includes('NOT_LOGGED_IN')) { resolve({ success: false, reason: 'not_logged_in' }); return; }
-      if (out.includes('RESULT:NO_IMAGE')) { resolve({ success: false, reason: 'no_image_generated' }); return; }
-      if (out.includes('ERROR:')) { resolve({ success: false, reason: 'execution_error', detail: out.substring(0, 200) }); return; }
-      resolve({ success: false, reason: 'unknown', detail: out.substring(0, 200) });
-    });
-  });
 }
 
 // 豆包登录流程
 async function runLogin() {
-  const scriptFile = '/workspace/pw/doubao_login_tmp.js';
-  const script = `
-const { chromium } = require('/workspace/pw/node_modules/playwright');
+    const scriptFile = './doubao_login_tmp.js';
+    const script = `
+const { chromium } = require('playwright');
 const fs = require('fs');
 
 (async () => {
   const browser = await chromium.launch({
-    executablePath: '${CHROME}',
+    channel: 'msedge',
     headless: true,
     args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu']
   });
@@ -243,7 +243,7 @@ const fs = require('fs');
   
   await page.goto('${DOUBAL_URL}', { timeout: 30000 });
   await page.waitForTimeout(5000);
-  await page.screenshot({ path: '/workspace/pw/doubao_login_page.png', fullPage: false });
+  await page.screenshot({ path: './doubao_login_page.png', fullPage: false });
   
   // 点击登录按钮
   const loginClicked = await page.evaluate(() => {
@@ -256,7 +256,7 @@ const fs = require('fs');
   await page.waitForTimeout(5000);
   
   // 截取登录页/二维码
-  await page.screenshot({ path: '/workspace/pw/doubao_login_after.png', fullPage: false });
+  await page.screenshot({ path: './doubao_login_after.png', fullPage: false });
   
   // 找二维码图片
   const qrData = await page.evaluate(() => {
@@ -299,111 +299,111 @@ const fs = require('fs');
   process.exit(0);
 })().catch(e => { console.log('FATAL:', e.message); process.exit(1); });
 `;
-  
-  fs.writeFileSync(scriptFile, script);
-  
-  return new Promise((resolve) => {
-    const child = spawn('xvfb-run', ['-a', 'node', scriptFile], {
-      cwd: '/workspace/pw',
-      timeout: 180000,
+
+    fs.writeFileSync(scriptFile, script);
+
+    return new Promise((resolve) => {
+        const child = spawn('node', [scriptFile], {
+            cwd: '.',
+            timeout: 180000,
+        });
+        let out = '';
+        child.stdout.on('data', d => { out += d.toString(); process.stdout.write(d); });
+        child.stderr.on('data', d => process.stderr.write(d));
+        child.on('close', (code) => {
+            const loggedIn = fs.existsSync(SESSION_FILE);
+            resolve({ done: true, success: loggedIn, qrReady: fs.existsSync(QR_FILE), output: out.substring(0, 300) });
+        });
     });
-    let out = '';
-    child.stdout.on('data', d => { out += d.toString(); process.stdout.write(d); });
-    child.stderr.on('data', d => process.stderr.write(d));
-    child.on('close', (code) => {
-      const loggedIn = fs.existsSync(SESSION_FILE);
-      resolve({ done: true, success: loggedIn, qrReady: fs.existsSync(QR_FILE), output: out.substring(0, 300) });
-    });
-  });
 }
 
 // HTTP 服务器
 function handleRequest(req, res) {
-  const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' };
-  if (req.method === 'OPTIONS') { res.writeHead(204, cors); res.end(); return; }
+    const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' };
+    if (req.method === 'OPTIONS') { res.writeHead(204, cors); res.end(); return; }
 
-  // GET /api/status
-  if (req.method === 'GET' && req.url === '/api/status') {
-    const login = checkLogin();
-    res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, version: '1.0', ...login, chromePath: fs.existsSync(CHROME) ? 'found' : 'missing' }));
-    return;
-  }
-
-  // GET /api/qr → 二维码PNG
-  if (req.method === 'GET' && req.url === '/api/qr') {
-    if (fs.existsSync(QR_FILE)) {
-      res.writeHead(200, { ...cors, 'Content-Type': 'image/png' });
-      fs.createReadStream(QR_FILE).pipe(res);
-    } else {
-      res.writeHead(404, { ...cors, 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, reason: 'Call POST /api/login first' }));
-    }
-    return;
-  }
-
-  // POST /api/login
-  if (req.method === 'POST' && req.url === '/api/login') {
-    res.setHeader('Content-Type', 'application/json');
-    res.writeHead(200, cors);
-    res.end(JSON.stringify({ ok: true, message: 'Login started. Poll /api/status and GET /api/qr in ~20s' }));
-    runLogin().then(r => log('Login result: ' + JSON.stringify(r)));
-    return;
-  }
-
-  // POST /api/generate
-  if (req.method === 'POST' && req.url === '/api/generate') {
-    let body = '';
-    req.on('data', d => body += d);
-    req.on('end', async () => {
-      res.setHeader('Content-Type', 'application/json');
-      try {
-        const { prompt } = JSON.parse(body);
-        if (!prompt) { res.writeHead(400, cors); res.end(JSON.stringify({ ok: false, reason: 'prompt required' })); return; }
-        
+    // GET /api/status
+    if (req.method === 'GET' && req.url === '/api/status') {
         const login = checkLogin();
-        if (!login.loggedIn) {
-          res.writeHead(200, cors);
-          res.end(JSON.stringify({ ok: false, reason: 'not_logged_in' }));
-          return;
-        }
-        
-        log('Generating image with prompt: ' + prompt.substring(0, 50));
-        res.writeHead(200, cors);
-        res.end(JSON.stringify({ ok: true, status: 'generating', prompt: prompt.substring(0, 100) }));
-        
-        const result = await generateImage(prompt);
-        fs.writeFileSync('/workspace/pw/last_doubao_result.json', JSON.stringify(result));
-        
-      } catch(e) {
-        res.writeHead(500, cors);
-        res.end(JSON.stringify({ ok: false, reason: e.message }));
-      }
-    });
-    return;
-  }
-
-  // GET /api/result
-  if (req.method === 'GET' && req.url === '/api/result') {
-    res.setHeader('Content-Type', 'application/json');
-    if (fs.existsSync('/workspace/pw/last_doubao_result.json')) {
-      res.writeHead(200, cors);
-      res.end(fs.readFileSync('/workspace/pw/last_doubao_result.json'));
-    } else {
-      res.writeHead(200, cors);
-      res.end(JSON.stringify({ ok: true, result: null }));
+        res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, version: '1.0', ...login, chromePath: fs.existsSync(CHROME) ? 'found' : 'missing', qrExists: fs.existsSync(QR_FILE) }));
+        return;
     }
-    return;
-  }
 
-  res.writeHead(404, cors);
-  res.end(JSON.stringify({ ok: false, endpoints: ['GET /api/status', 'GET /api/qr', 'POST /api/login', 'POST /api/generate', 'GET /api/result'] }));
+    // GET /api/qr → 二维码PNG
+    if (req.method === 'GET' && req.url.startsWith('/api/qr')) {
+        if (fs.existsSync(QR_FILE)) {
+            res.writeHead(200, { ...cors, 'Content-Type': 'image/png' });
+            fs.createReadStream(QR_FILE).pipe(res);
+        } else {
+            res.writeHead(404, { ...cors, 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, reason: 'Call POST /api/login first' }));
+        }
+        return;
+    }
+
+    // POST /api/login
+    if (req.method === 'POST' && req.url === '/api/login') {
+        res.setHeader('Content-Type', 'application/json');
+        res.writeHead(200, cors);
+        res.end(JSON.stringify({ ok: true, message: 'Login started. Poll /api/status and GET /api/qr in ~20s' }));
+        runLogin().then(r => log('Login result: ' + JSON.stringify(r)));
+        return;
+    }
+
+    // POST /api/generate
+    if (req.method === 'POST' && req.url === '/api/generate') {
+        let body = '';
+        req.on('data', d => body += d);
+        req.on('end', async () => {
+            res.setHeader('Content-Type', 'application/json');
+            try {
+                const { prompt } = JSON.parse(body);
+                if (!prompt) { res.writeHead(400, cors); res.end(JSON.stringify({ ok: false, reason: 'prompt required' })); return; }
+
+                const login = checkLogin();
+                if (!login.loggedIn) {
+                    res.writeHead(200, cors);
+                    res.end(JSON.stringify({ ok: false, reason: 'not_logged_in' }));
+                    return;
+                }
+
+                log('Generating image with prompt: ' + prompt.substring(0, 50));
+                res.writeHead(200, cors);
+                res.end(JSON.stringify({ ok: true, status: 'generating', prompt: prompt.substring(0, 100) }));
+
+                const result = await generateImage(prompt);
+                fs.writeFileSync('./last_doubao_result.json', JSON.stringify(result));
+
+            } catch (e) {
+                res.writeHead(500, cors);
+                res.end(JSON.stringify({ ok: false, reason: e.message }));
+            }
+        });
+        return;
+    }
+
+    // GET /api/result
+    if (req.method === 'GET' && req.url === '/api/result') {
+        res.setHeader('Content-Type', 'application/json');
+        if (fs.existsSync('./last_doubao_result.json')) {
+            res.writeHead(200, cors);
+            res.end(fs.readFileSync('./last_doubao_result.json'));
+        } else {
+            res.writeHead(200, cors);
+            res.end(JSON.stringify({ ok: true, result: null }));
+        }
+        return;
+    }
+
+    res.writeHead(404, cors);
+    res.end(JSON.stringify({ ok: false, endpoints: ['GET /api/status', 'GET /api/qr', 'POST /api/login', 'POST /api/generate', 'GET /api/result'] }));
 }
 
 const server = http.createServer(handleRequest);
 server.listen(PORT, '0.0.0.0', () => {
-  log(`Doubao API started on port ${PORT}`);
-  log(`Session: ${SESSION_FILE}`);
+    log(`Doubao API started on port ${PORT}`);
+    log(`Session: ${SESSION_FILE}`);
 });
 
 process.on('uncaughtException', e => { console.error('uncaughtException:', e); });

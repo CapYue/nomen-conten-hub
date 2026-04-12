@@ -4,7 +4,7 @@
 
 **[在线访问](https://vc47499yvvic.space.minimaxi.com)**
 
-> ⚠️ 云端版本功能受限，完整自动化需本地运行。详见 [LOCAL_SETUP.md](LOCAL_SETUP.md)
+> ⚠️ 云端版本功能受限，完整自动化（小红书发布、豆包生图）需**本地运行**。
 
 ---
 
@@ -13,184 +13,92 @@
 | 模块 | 功能 |
 |------|------|
 | 📝 内容管理 | 14篇预写游牧文化选题，支持双模式发布 |
-| 🖼️ AI 封面图 | 14张专属 AI 封面图（CDN 托管） |
+| 🖼️ AI 封面图 | 豆包 AI 自动化网页生图 + 预置 AI 封面图 |
 | ✍️ AI 文案生成 | Deepseek API 生成笔记正文 |
 | 🔄 人工审核 | 4图选封面 + 编辑文案 + 一键发布 |
-| 📅 内容日历 | 按月规划发布节奏 |
-| 🔔 飞书通知 | 审核通过后自动推送通知 |
-| 🌐 小红书自动发布 | 云端 Chromium + Playwright 自动化发布 |
+| 🌐 自动化服务 | Playwright + 本地 Edge/Chrome 浏览器自动化发布 |
 
 ---
 
 ## 项目结构
 
-```
+```text
 nomad-content-hub/
 ├── src/
 │   ├── data/contentPool.ts    # 14篇选题数据（含封面 CDN URL）
-│   └── App.tsx                # 主应用（审核 + 发布流程）
+│   └── App.tsx                # 主应用前端（审核 + 发布流程）
 ├── public/covers/             # AI 封面图（topic_1_0.png ~ topic_14_0.png）
-├── server.js                  # Express API 服务器
-├── SKILL.md                   # 小红书自动化发布 Skill
-└── docs/
-    └── XHS-INTEGRATION.md     # 小红书打通方案详解
+├── xhs_api.js                 # 小红书自动化发布 API 服务 (端口 3003)
+├── doubao_api.js              # 豆包自动化生图 API 服务 (端口 3004)
+├── start.bat                  # Windows 一键启动脚本
+├── LOCAL_SETUP.md             # 本地详细搭建指南
+└── SKILL.md                   # 小红书自动化发布 Skill
 ```
 
 ---
 
-## 小红书自动发布方案
+## 如何在本地运行与使用
 
-### 架构说明
+> 本项目已重构为支持 Windows/macOS 本地运行，无需配置 Linux 虚拟桌面（xvfb）。系统会自动调用你本地的 Edge 或 Chrome 浏览器进行后台操作。
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                     云端服务器                            │
-│  ┌──────────────┐    ┌─────────────────────────────┐   │
-│  │ Playwright   │───▶│ Chromium Browser (无头)      │   │
-│  │ (Node.js)   │    │ 自动化控制 Chrome             │   │
-│  └──────────────┘    └─────────────────────────────┘   │
-│         │                       │                      │
-│         │  CDP (Chrome DevTools Protocol)              │
-│         ▼                       ▼                      │
-│  ┌──────────────┐    ┌─────────────────────────────┐   │
-│  │  发布脚本     │    │ 小红书创作者中心              │   │
-│  │ xhs_publisher│───▶│ creator.xiaohongshu.com    │   │
-│  │ .js          │    │ (登录 → 填内容 → 上图 → 发布)│   │
-│  └──────────────┘    └─────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-```
+### 1. 环境准备
+- 安装 **Node.js** (>= 18)
+- 确保电脑已安装 Microsoft Edge 或 Google Chrome
 
-### 打通步骤
-
-#### 第一步：安装云端浏览器依赖
-
-在服务器上已预装：
-- Chromium (`/workspace/browsers/chromium-1217/chrome-linux64/chrome`)
-- Playwright (`/workspace/pw/node_modules/playwright`)
-- xvfb-run（虚拟显示器，用于无头模式运行 Chrome）
-
-如需重新安装：
+### 2. 安装依赖
 ```bash
-# 安装 Playwright
-cd /workspace/pw
-npm init -y && npm install playwright
-PLAYWRIGHT_BROWSERS_PATH=/workspace/browsers npx playwright install chromium --with-deps
-
-# 安装 xauth（用于虚拟显示）
-apt-get install -y xvfb xauth
+npm install
+npm install playwright
+npx playwright install chromium
 ```
+*(注意：Playwright 用于自动化控制，实际上代码配置了调用本地的 `msedge` 浏览器)*
 
-#### 第二步：运行发布脚本
-
-```bash
-# 启动 Chromium 并打开发布页面
-cd /workspace/pw
-xvfb-run -a node xhs_publisher.js \
-  --title="蒙古包：游牧民族的天空" \
-  --content="草原上的家，折叠的美学..." \
-  --images="/workspace/nomad-content-hub/public/covers/topic_1_0.png"
+### 3. 一键启动
+在项目根目录运行一键启动脚本（Windows 系统）：
+```powershell
+.\start.bat
 ```
+这会自动打开 3 个命令行窗口，分别运行：
+1. **小红书 API** (端口 3003)
+2. **豆包 API** (端口 3004)
+3. **前端网站** (端口 5173)
 
-#### 第三步：扫码登录（首次）
+### 4. 扫码登录（关键步骤）
+自动化脚本需要你的账号授权才能替你发帖和生图。
 
-脚本会自动打开云端 Chrome，访问小红书创作者中心登录页。
+1. 在浏览器打开前端页面：[http://localhost:5173](http://localhost:5173)
+2. **小红书登录**：
+   - 点击网页右上角的“未登录”状态灯，或进入“🤖 AI 工具”页面
+   - 点击**「🔑 扫码登录小红书」**
+   - 此时后台脚本会自动拉起隐藏浏览器获取二维码，并保存在项目根目录的 `xhs_login_qr.png`
+   - 打开小红书 App，扫描网页上展示的二维码即可登录（有效期通常为 7 天）
+3. **豆包登录**：
+   - 在“🤖 AI 工具”页面，点击**「🔑 扫码登录豆包」**
+   - 同样扫描展示的二维码登录（保存为 `doubao_qr.png`）
 
-**获取登录二维码：**
-```bash
-cd /workspace/pw
-xvfb-run -a node -e "
-const { chromium } = require('./node_modules/playwright');
-(async () => {
-  const browser = await chromium.launch({ executablePath: '/workspace/browsers/chromium-1217/chrome-linux64/chrome', args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'] });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto('https://creator.xiaohongshu.com/login');
-  await page.waitForTimeout(5000);
-  await page.mouse.click(1140, 290);  // 点击右上角二维码图标
-  await page.waitForTimeout(3000);
-  const qrData = await page.evaluate(() => {
-    const imgs = Array.from(document.querySelectorAll('img'));
-    const qrImg = imgs.find(i => i.width === 160 && i.height === 160);
-    return qrImg ? qrImg.src : null;
-  });
-  if (qrData) {
-    const base64 = qrData.replace(/^data:image\/\\w+;base64,/, '');
-    require('fs').writeFileSync('/workspace/pw/xhs_qrcode.png', Buffer.from(base64, 'base64'));
-    console.log('QR saved to /workspace/pw/xhs_qrcode.png');
-  }
-  await browser.close();
-})().catch(e => console.error(e.message));
-"
-```
+*(登录状态会分别保存在项目根目录的 `xhs_session.json` 和 `doubao_session.json` 中，过期后删除这两个文件重新扫码即可。)*
 
-将生成的 `xhs_qrcode.png` 通过 CDN 分发，用户扫码登录。
-
-**会话持久化：**
-登录后保存 Cookie，下次无需重新扫码：
-```javascript
-// 保存登录状态
-await context.storageState({ path: './xhs_state.json' });
-
-// 下次使用保存的登录状态
-const context = await browser.newContext({ storageState: './xhs_state.json' });
-```
-
-#### 第四步：自动发布
-
-```bash
-# 完整发布流程
-xvfb-run -a node /workspace/pw/xhs_publisher.js \
-  --title="蒙古包：游牧民族的天空" \
-  --content="在内蒙古大草原上，蒙古包像一朵朵白色的云..." \
-  --images="/workspace/nomad-content-hub/public/covers/topic_1_0.png,/workspace/nomad-content-hub/public/covers/topic_1_1.png"
-```
+### 5. 开始自动化工作流
+1. **获取内容**：在「🏠 内容库」中选择任意选题，点击「🔍 审核发布」。
+2. **AI 生成**：
+   - 如果对封面不满意，可以在“🤖 AI 工具”中输入描述词，点击「用豆包生成图片」，系统会自动在后台浏览器控制豆包生成并抓取图片。
+3. **自动发布**：
+   - 确认标题、正文、封面后，点击**「📤 发布到小红书」**。
+   - 系统会自动拉起浏览器，访问小红书创作者中心，自动填入图文并点击发布。
 
 ---
 
-## 核心文件说明
+## 常见问题排查
 
-### xhs_publisher.js
-自动化发布脚本，完整流程：
-1. 启动 Chromium（云端 + xvfb 虚拟显示）
-2. 加载登录状态（Cookie）
-3. 打开发布页 `creator.xiaohongshu.com/publish/publish`
-4. 填写标题 + 正文
-5. 上传封面图和正文图片
-6. 点击发布按钮
-7. 截图确认最终状态
-
-### contentPool.ts
-选题数据，包含每篇笔记的：
-- `title` / `content` / `tags`
-- `coverImageUrl`：AI 封面图 CDN 地址
-- `coverPrompt`：封面图生成描述词
+- **发布没反应/失败**：检查 `xhs_api.js` 所在的命令行窗口是否有报错日志，通常是因为登录过期（需删除 `xhs_session.json` 重新扫码）。
+- **二维码不显示**：首次启动获取二维码需要等待约 10-20 秒钟，请耐心等待并在终端查看是否生成了 `_qr.png` 图片。
+- **端口冲突**：确保 3003、3004、5173 端口没有被其他程序占用。
 
 ---
 
-## 快速命令汇总
+## 核心自动化文件说明
 
-```bash
-# 重构部署
-cd /workspace/nomad-content-hub && npm run build
-
-# 获取登录二维码
-cd /workspace/pw && xvfb-run -a node get_qr.js
-
-# 正式发布（需先登录）
-xvfb-run -a node xhs_publisher.js \
-  --title="标题" \
-  --content="正文" \
-  --images="/path/to/cover.png"
-
-# 推送到 GitHub
-cd /workspace/nomad-content-hub
-git add -A && git commit -m "update: desc" && git push
-```
-
----
-
-## 待接入功能
-
-- [ ] 豆包网页版 AI 生图（Browser Relay 方案）
-- [ ] 小红书官方 API（需申请创作者权限）
-- [ ] 多账号管理
-- [ ] 定时自动发布（Cron 调度）
+- **`xhs_api.js` / `xhs_publish.js` / `xhs_login.js`**
+  - 控制本地浏览器访问 `creator.xiaohongshu.com` 实现登录状态管理与图文发布。
+- **`doubao_api.js` / `doubao_gen.js` / `doubao_login.js`**
+  - 控制本地浏览器访问豆包网页版 (`www.doubao.com/chat/`) 实现自动化对话输入并截取生成的图片。
