@@ -3,9 +3,19 @@ logs
 *.log
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
+# Session files (包含敏感登录信息)
+*.json
+!package.json
+!tsconfig*.json
+
+# Temporary files
+*.err
+*.png
+*_qr.png
+*_qr.*
 
 node_modules
 dist
